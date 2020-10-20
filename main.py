@@ -4,6 +4,7 @@ from __future__ import division
 import rospy
 import math
 import time
+import numpy as np
 
 from rosrider_lib.rosrider import ROSRider
 
@@ -17,8 +18,12 @@ class LineFollower:
         self.robot = ROSRider('robot1', 500.0)
         self.lateralKp = 5.2
         self.lateralKd = 10.0
-        self.max_linear = 1.0
+        self.multiplier = 0.9
+        self.max_linear = 1.1
         self.sensor_row = []
+        self.weights = [0.18, 0.169, 0.1575, 0.146, 0.135, 0.124, 0.112, 0.101, 0.09, 0.0788, 0.0675, 0.0562, 0.045, 0.03375, 0.0225, 0.01125, 
+                        -0.01125, -0.0225, -0.03375, -0.045, -0.0562, -0.0675, -0.0788, -0.09, -0.101, -0.112, -0.124, -0.135, -0.146, -0.1575, -0.169, -0.18] 
+        self.last_dev_index = 0
         self.started = False
         rospy.wait_for_message('/simulation_metrics', String)
 
@@ -45,7 +50,15 @@ class LineFollower:
             max_value_index = self.sensor_row.index(max(self.sensor_row)) # 0-31 !
             dev_pixel = 15 - max_value_index
 
-            dev_error = dev_pixel * 0.01125
+            num = 0
+            den = 0
+            # Interpolation
+            mult = np.multiply(self.weights, self.sensor_row)
+            for i in range(len(mult)):
+                num += mult[i]
+                den += self.sensor_row[i]
+            dev_error = num/den
+
             angle_remaining = math.atan2(dev_error, 0.38) # Radians!
 
             # Calculate angular velocity
@@ -55,12 +68,12 @@ class LineFollower:
             angular = (self.lateralKp * lateral_error) + (self.lateralKd * lateral_diff)
 
             # Linear velocity
-            max_dev = 0.1
+            max_dev = 0.09
             g = 9.81
             I = 0.01
-            if angle_remaining == 0.0:
+            if angle_remaining < 0.0001:
                 angle_remaining = math.pow(self.max_linear, 2) * 2 * math.acos(1-max_dev*g*I)
-            linear = math.sqrt(max_dev * g * I / (1 - math.cos(angle_remaining / 2)))
+            linear = self.multiplier * math.sqrt(max_dev * g * I / (1 - math.cos(angle_remaining / 2)))
             linear = min(linear, self.max_linear)
 
             # Control commands
@@ -76,3 +89,4 @@ if __name__ == '__main__':
         node.main()
     except rospy.ROSInterruptException:
         pass
+
